@@ -23,6 +23,97 @@
     2015. Refactored and completed by Ignacio Gros (http://www.gros.es) for http://exelearning.net/
 */
 
+window.MathJax = window.MathJax || (function() {
+    var isWorkarea = typeof window.eXeLearning !== 'undefined' || document.querySelector('script[src*="app/common/exe_math"]');
+    var isIndex = document.documentElement.id === 'exe-index';
+    // For workarea: use versioned path from eXeLearning config or detect from script tags
+    // For exports: use relative paths (./libs or ../libs)
+    var version = (window.eXeLearning && window.eXeLearning.version) || '';
+    var configBasePath = '';
+    if (isWorkarea) {
+        // Try to detect version and basePath from existing script tags (e.g., /web/exelearning/v0.0.0-alpha/app/...)
+        var scriptTag = document.querySelector('script[src*="/app/common/"]');
+        if (scriptTag) {
+            var src = scriptTag.src;
+            // Extract version (e.g., v0.0.0-alpha)
+            var versionMatch = src.match(/\/(v[\d.]+[^/]*)\//);
+            if (versionMatch) version = versionMatch[1];
+            // Extract basePath - everything before /v... or /app/
+            // URL might be: /web/exelearning/v0.0.0/app/common/... or /v0.0.0/app/common/...
+            try {
+                var url = new URL(src);
+                var pathname = url.pathname;
+                // Find where the versioned path or /app/ starts
+                var appIndex = pathname.indexOf('/app/common/');
+                if (appIndex > 0) {
+                    var beforeApp = pathname.substring(0, appIndex);
+                    // If there's a version, remove it from the path
+                    if (version && beforeApp.endsWith('/' + version)) {
+                        configBasePath = beforeApp.substring(0, beforeApp.length - version.length - 1);
+                    } else {
+                        configBasePath = beforeApp;
+                    }
+                }
+            } catch (e) {
+                // If URL parsing fails, leave configBasePath empty
+            }
+        }
+    }
+    // Generic logic to detect if we are in the index page (root) or a subpage
+    // We check the src of the common.js script itself.
+    var scriptPath = '';
+    var scripts = document.getElementsByTagName('script');
+    for (var i = 0; i < scripts.length; i++) {
+        var src = scripts[i].getAttribute('src');
+        if (src && src.indexOf("common.js") !== -1 && src.indexOf("common_i18n") === -1) {
+            scriptPath = src;
+            break;
+        }
+    }
+    // If common.js is loaded as "libs/common.js" (or "./libs...") we are at root.
+    // If it's loaded as "../libs/common.js", we are in a subfolder.
+    if (scriptPath && (scriptPath === 'libs/common.js' || scriptPath === './libs/common.js' || scriptPath.indexOf('/libs/common.js') !== -1 && scriptPath.indexOf('../') === -1)) {
+        isIndex = true;
+    }
+
+    var basePath = isWorkarea
+        ? (version ? configBasePath + '/' + version + '/app/common/exe_math' : configBasePath + '/app/common/exe_math')
+        : (isIndex ? 'libs/exe_math' : '../libs/exe_math');
+    
+    var externalExtensions = [
+        'amscd', 'bbox', 'boldsymbol', 'braket', 'bussproofs', 'cancel',
+        'cases', 'centernot', 'color', 'colortbl', 'empheq', 'enclose',
+        'extpfeil', 'gensymb', 'html', 'mathtools', 'mhchem', 'noerrors',
+        'physics', 'tagformat', 'textcomp', 'unicode', 'upgreek', 'verb',
+        'setoptions'
+        // TODO: Enable these extensions when upgrading to MathJax 4.0
+        // Currently disabled due to dependency issues with bundled tex-mml-svg.js (MathJax 3.x)
+        // These extensions require input/tex-base to be fully loaded before initialization
+        // 'bbm', 'bboldx', 'begingroup', 'colorv2', 'dsfont', 'texhtml', 'units'
+    ];
+    
+    return {
+        tex: {
+            inlineMath: [["\\(", "\\)"]],
+            displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+            processEscapes: true,
+            tags: 'ams',
+            packages: { '[+]': externalExtensions }
+        },
+        loader: {
+            paths: { mathjax: basePath },
+            load: externalExtensions.map(function(ext) { return '[tex]/' + ext; })
+        },
+        options: {
+            // Exclude navbar dropdown menus from MathJax processing (File, Edit, etc.)
+            // Note: nav-element is NOT excluded - page titles with LaTeX must be processed
+            ignoreHtmlClass: 'tex2jax_ignore|dropdown-menu|dropdown-item|modal',
+            // Skip processing inside these HTML tags
+            skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+        }
+    };
+})();
+
 var $exe = {
 
     options: {
@@ -53,8 +144,9 @@ var $exe = {
         $exe.hasTooltips();
         $exe.math.init();
         $exe.mermaid.init();
-        $exe.dl.init();
-        $exe.sfHover();
+        setTimeout(function(){
+            $exe.dl.init(); // #1603
+        }, 0);
         // Add a zoom icon to the images using CSS
         $("a.exe-enlarge").each(function (i) {
             var e = $(this);
@@ -69,8 +161,21 @@ var $exe = {
 
     // Math options (MathJax, etc.) - To review (some options might not be needed)
     math: {
-        // MathJax script path
-        engine: $("html").prop("id") == "exe-index" ? "./libs/exe_math/tex-mml-svg.js" : "../libs/exe_math/tex-mml-svg.js",
+        get engine() {
+            return $exeDevices.iDevice.gamification.math.engine;
+        },
+        get engineConfig() {
+            return $exeDevices.iDevice.gamification.math.engineConfig;
+        },
+        loadMathJax: function(callback) {
+            return $exeDevices.iDevice.gamification.math.loadMathJax(callback);
+        },
+        hasLatex: function(text) {
+            return $exeDevices.iDevice.gamification.math.hasLatex(text);
+        },
+        refresh: function(elements) {
+            return $exeDevices.iDevice.gamification.math.updateLatex(elements);
+        },
         // Create links to the code and the image (different possibilities)
         createLinks: function (math) {
             var mathjax = false;
@@ -105,12 +210,18 @@ var $exe = {
             var tit = e.innerHTML;
             var block = $(e).parent().parent();
             var code = $(".exe-math-code", block);
+            code = code.html();
+            // The SVG renderer generates SVG + MathML
+            if (code.indexOf('svg><math') != -1) {
+                code = code.split('svg><math');
+                code = '<math' + code[1];
+            }
             var a = window.open(tit);
             a.document.open("text/html");
             var html = '<!DOCTYPE html><html><head><title>' + tit + '</title>';
             html += '<style type="text/css">body{font:10pt/1.5 Verdana,Arial,Helvetica,sans-serif;margin:10pt;padding:0}</style>';
             html += '</head><body><pre><code>';
-            html += code.html();
+            html += code;
             html += '</code></pre></body></html>';
             a.document.write(html);
             a.document.close();
@@ -120,6 +231,35 @@ var $exe = {
             $("body").addClass("exe-auto-math"); // Always load it
             var math = $(".exe-math");
             var mathjax = false;
+
+            // Check if content is pre-rendered (SVG+MathML)
+            // Pre-rendered LaTeX uses class "exe-math-rendered"
+            // If ALL LaTeX is pre-rendered and no explicit exe-math-engine elements exist,
+            // no need for MathJax library (similar pattern to Mermaid pre-rendering).
+            // IMPORTANT: in mixed content (some pre-rendered + some raw LaTeX),
+            // we MUST still load MathJax for the raw formulas.
+            var hasPreRendered = $(".exe-math-rendered").length > 0;
+            var hasExplicitEngine = $(".exe-math-engine").length > 0;
+
+            if (hasPreRendered && !hasExplicitEngine) {
+                // Remove already rendered wrappers before scanning for pending raw LaTeX.
+                // This avoids false positives from data-latex attributes and rendered internals.
+                var bodyHtml = $('body').html() || '';
+                var htmlWithoutRendered = bodyHtml.replace(
+                    /<span\b[^>]*class\s*=\s*["'][^"']*\bexe-math-rendered\b[^"']*["'][^>]*>[\s\S]*?<\/span>/gi,
+                    ''
+                );
+
+                var hasPendingRawLatex = /(?:\\\(|\\\[|\$\$|\\begin\{.*?}|\\(?:eq)?ref\{)/.test(htmlWithoutRendered);
+
+                if (!hasPendingRawLatex) {
+                    // Content was fully pre-rendered to SVG+MathML, no need for MathJax library
+                    // Still create links for code/image access if needed
+                    $exe.math.createLinks(math);
+                    return;
+                }
+            }
+
             if (math.length > 0 || $("body").hasClass("exe-auto-math")) {
                 if ($("body").hasClass("exe-auto-math")) {
                     var hasLatex = /(?:\\\(|\\\[|\\begin\{.*?})/.test($('body').html());
@@ -160,10 +300,21 @@ var $exe = {
                             }
                         }
                     });
-                    if (typeof (window.MathJax) == 'object' && typeof (MathJax.typesetPromise) == 'function') {
-                        MathJax.typesetPromise();
+                    $exe.math.loadMathJax(function () {
+                        // For SPA preview: only typeset active page (prevents replaceChild errors)
+                        var activePage = document.querySelector('.spa-page.active');
+                        if (activePage) {
+                            MathJax.typesetPromise([activePage]).catch(function(e) {
+                                console.warn('[MathJax] Typeset error:', e.message);
+                            });
+                        } else {
+                            // Not a SPA preview, typeset everything
+                            MathJax.typesetPromise().catch(function(e) {
+                                console.warn('[MathJax] Typeset error:', e.message);
+                            });
+                        }
                         $exe.math.createLinks();
-                    }
+                    });
                 } else {
                     $exe.math.createLinks(math);
                 }
@@ -172,35 +323,146 @@ var $exe = {
     },
     // Mermaid options
     mermaid: {
-        // Mermaid script path
-        engine: $("html").prop("id") === "exe-index" ? "./libs/mermaid/mermaid.min.js" : "../app/common/mermaid/mermaid.min.js",
+        // Mermaid script path - computed dynamically to handle static mode
+        engine: (function() {
+            var config = window.eXeLearning?.config;
+            if (typeof config === 'string') {
+                try { config = JSON.parse(config); } catch(e) { config = null; }
+            }
+            // Static mode: use relative path without version prefix
+            if (config?.isStaticMode || config?.isOfflineInstallation) {
+                return './app/common/mermaid/mermaid.min.js';
+            }
+            // Server mode: use versioned path
+            if (config?.baseURL !== undefined) {
+                return config.baseURL + (config.basePath || '') + '/' + window.eXeLearning.version + '/app/common/mermaid/mermaid.min.js';
+            }
+            // Export mode
+            var isIndex = $("html").prop("id") === "exe-index";
+            // Double check with script src if ID check fails (robustness)
+            if (!isIndex) {
+                 var scripts = document.getElementsByTagName('script');
+                 for (var i = 0; i < scripts.length; i++) {
+                     var src = scripts[i].getAttribute('src');
+                     if (src && (src === 'libs/common.js' || src === './libs/common.js')) {
+                         isIndex = true;
+                         break;
+                     }
+                 }
+            }
+            return (isIndex ? "libs/mermaid/mermaid.min.js" : "../libs/mermaid/mermaid.min.js");
+        })(),
         reload_pending: false,
-            //'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js',
+        initialized: false,
         loadMermaid: function () {
+            // Dynamic path resolution
+            var enginePath = this.engine;
+            var config = window.eXeLearning?.config;
+            if (typeof config === 'string') {
+                try { config = JSON.parse(config); } catch(e) { config = null; }
+            }
+            // Static mode: use relative path without version prefix
+            if (config?.isStaticMode || config?.isOfflineInstallation) {
+                enginePath = './app/common/mermaid/mermaid.min.js';
+            } else if (config?.baseURL !== undefined) {
+                // Server mode: use versioned path
+                enginePath = config.baseURL + (config.basePath || '') + '/' + window.eXeLearning.version + '/app/common/mermaid/mermaid.min.js';
+            }
+
             if (typeof window.mermaid === 'undefined') {
                 const script = document.createElement("script");
-                script.src = this.engine;
+                script.src = enginePath;
                 script.async = true;
                 script.onload = function () {
                     mermaid = window.mermaid;
-                    mermaid.initialize({ startOnLoad: false });
-                    mermaid.run();
+                    mermaid.initialize({
+                        startOnLoad: false,
+                        suppressErrorRendering: true,
+                        logLevel: 'fatal',
+                        // Gantt configuration to prevent negative width errors
+                        gantt: {
+                            useMaxWidth: true,
+                            useWidth: undefined
+                        },
+                        flowchart: {
+                            useMaxWidth: true
+                        }
+                    });
+                    $exe.mermaid.initialized = true;
+                    $exe.mermaid.renderDiagrams();
                 };
                 document.head.appendChild(script);
-                this.reload_pending = false;
-            } else {
+            } else if (this.initialized) {
                 // debounce reloading to avoid multiple calls
                 if (!this.reload_pending) {
                     this.reload_pending = true;
                     setTimeout(function () {
                         $exe.mermaid.reload_pending = false;
-                        mermaid.run();
+                        $exe.mermaid.renderDiagrams();
                     }, 100);
                 }
             }
         },
+        renderDiagrams: function (retryCount) {
+            retryCount = retryCount || 0;
+            var maxRetries = 10;
+            // Include elements without data-processed OR with data-processed="pending" (failed previous render)
+            var mermaidNodes = $(".mermaid:not([data-processed]), .mermaid[data-processed='pending']");
+
+            if (mermaidNodes.length === 0) return;
+
+            // Check if elements have valid dimensions
+            var readyNodes = [];
+            var pendingNodes = [];
+
+            mermaidNodes.each(function () {
+                var $el = $(this);
+                // Element needs to be visible AND have width > 0
+                if ($el.is(':visible') && $el.width() > 0) {
+                    readyNodes.push(this);
+                    // Remove pending status so mermaid.run() will process it
+                    $el.removeAttr('data-processed');
+                } else {
+                    pendingNodes.push(this);
+                }
+            });
+
+            // Only call mermaid.run() if there are ready nodes
+            // IMPORTANT: Pass the specific nodes to render, not all .mermaid elements
+            // This prevents Mermaid from rendering hidden elements with 0 width
+            if (readyNodes.length > 0) {
+                try {
+                    // Pass only the ready nodes to mermaid.run()
+                    mermaid.run({ nodes: readyNodes });
+                } catch (e) {
+                    // Silently handle rendering errors
+                }
+            }
+
+            // Mark pending nodes so we know they need retry later
+            // (when the page containing them becomes visible)
+            pendingNodes.forEach(function(node) {
+                if (!node.hasAttribute('data-processed')) {
+                    node.setAttribute('data-processed', 'pending');
+                }
+            });
+
+            // Retry for pending nodes that don't have dimensions yet
+            if (pendingNodes.length > 0 && retryCount < maxRetries) {
+                setTimeout(function () {
+                    $exe.mermaid.renderDiagrams(retryCount + 1);
+                }, 200);
+            }
+        },
         init: function () {
+            // Check for mermaid elements that need rendering
+            // Pre-rendered diagrams have class exe-mermaid-rendered (not .mermaid)
+            // so they won't be matched by this selector.
+            // Include ALL .mermaid elements (even data-processed="pending" which means
+            // a previous render failed) so Mermaid library gets loaded and they can retry.
             var mermaidNodes = $(".mermaid");
+
+            // Load Mermaid if there are any mermaid elements
             if (mermaidNodes.length > 0) {
                 this.loadMermaid();
             }
@@ -234,6 +496,16 @@ var $exe = {
             var lightboxLinks = $("a[rel^='lightbox']");
             lightboxLinks.each(function (i) {
                 var ref = $(this).attr("href");
+
+                // Within eXe replace the blob URL with the URL of the asset to check if isAudio or isVideo
+                if (typeof ref == 'string' && ref.startsWith('blob:') && typeof eXeLearning !== 'undefined' && typeof eXeLearningAssetResolver !== 'undefined') {
+                    var assetURL = eXeLearningAssetResolver.getAssetUrlFromBlob(ref);
+                    if (assetURL !== null) {
+                        $(this).attr("href", assetURL);
+                        ref = assetURL;
+                    }
+                }
+
                 var _ref = ref.toLowerCase();
                 var isAudio = _ref.indexOf(".mp3") != -1;
                 var isVideo = _ref.indexOf(".mp4") != -1 || _ref.indexOf(".flv") != -1 || _ref.indexOf(".ogg") != -1 || _ref.indexOf(".ogv") != -1;
@@ -246,9 +518,6 @@ var $exe = {
                     $("body").append(hiddenPlayer);
                     $exe.hasMultimediaGalleries = true;
                 }
-                // Inline content title
-                var t = this.title;
-                if (ref.indexOf('#') == 0 && $(ref).length == 1 && t && t != "") $(ref).prepend('<h2 class="pp_title">' + t + '</h2>');
             });
             lightboxLinks.prettyPhoto({
                 social_tools: "",
@@ -272,6 +541,7 @@ var $exe = {
                         var ext = src.split("/");
                         ext = ext[ext.length - 1];
                         ext = ext.split(".")[1];
+                        if (typeof ext == 'undefined' || ext == 'undefined') ext = $exe_i18n.download;
                         $(".pp_details .pp_description").append(' <span class="exe-media-download"><a href="' + src + '" title="' + $exe_i18n.download + '" download>' + ext + '</a></span>');
                     } else {
                         // Hide the title at the bottom (we use h2.pp_title instead)
@@ -315,7 +585,18 @@ var $exe = {
             // Multimedia galleries
             $exe.mediaelements = $(".mediaelement");
             $exe.mediaelements.each(function () {
-                if (typeof this.localName != "undefined" && this.localName == "video") {
+                // Only process actual audio/video elements, not MEJS wrapper containers
+                // When MEJS wraps an element, the container also gets class 'mediaelement'
+                // which can cause double-initialization issues
+                var tagName = this.localName || this.tagName?.toLowerCase();
+                if (tagName !== "audio" && tagName !== "video") {
+                    return; // Skip non-media elements (like mejs-container divs)
+                }
+                // Skip if already processed by MEJS
+                if (this.player !== undefined) {
+                    return;
+                }
+                if (tagName === "video") {
                     var e = this.width;
                     var t = $(window).width();
                     if (e > t) {
@@ -325,10 +606,22 @@ var $exe = {
                         this.height = r
                     }
                 }
-                $(this).mediaelementplayer();
+                // Disable the JavaScript player if the video has no .srt subtitles
+                if ($("track", this).length > 0) {
+                    var hasSrt = false;
+                    $("track", this).each(function() {
+                        if (typeof(this.src) == 'string') {
+                            if (this.src.endsWith('.srt')) {
+                                hasSrt = true;
+                            }
+                        }
+                    });
+                    if (hasSrt) $(this).mediaelementplayer();
+                }
             });
             $exe.loadMediaPlayer.isReady = true;
-            if (!$exe.loadMediaPlayer.isCalledInBox) $("#pp_full_res .exe-media-box-element").mediaelementplayer();
+            // No JavaScript player in prettyPhoto
+            // if (!$exe.loadMediaPlayer.isCalledInBox) $("#pp_full_res .exe-media-box-element").mediaelementplayer();
         }
     },
 
@@ -437,14 +730,34 @@ var $exe = {
         if ($("A.exe-tooltip").length > 0) {
             var p = "";
             if (typeof (eXeLearning) !== 'undefined') {
-                p = eXeLearning.symfony.fullURL + "/app/common/exe_tooltips/";
+                // TODO: UNIFY - Fallback for branch compatibility.
+                // In 'main' branch: eXeLearning.symfony.fullURL exists (added by Symfony backend)
+                // In this branch: only eXeLearning.config.fullURL exists (set in workarea.njk)
+                // To unify: Either add 'symfony' property to workarea.njk template,
+                // or update main branch to use 'config' consistently.
+                p = (eXeLearning.symfony?.fullURL || eXeLearning.config?.fullURL || '') + "/app/common/exe_tooltips/";
             } else {
                 var ref = window.location.href;
-                // Check if it's the home page
+                // Check if it's the home page using robust checks (ID or script path)
                 p = "libs/exe_tooltips/";
-                if (!document.getElementById("exe-index")) p = "../" + p;
+                var isIndex = document.getElementById("exe-index") !== null;
+                if (!isIndex) {
+                    var scripts = document.getElementsByTagName('script');
+                    for (var i = 0; i < scripts.length; i++) {
+                        var src = scripts[i].getAttribute('src');
+                        if (src && (src === 'libs/common.js' || src === './libs/common.js')) {
+                            isIndex = true;
+                            break;
+                        }
+                    }
+                }
+                if (!isIndex) p = "../" + p;
             }
-            $exe.loadScript(p + "exe_tooltips.js", "$exe.tooltips.init('" + p + "')")
+            if (typeof($exe.tooltips) === 'undefined') {
+                $exe.loadScript(p + "exe_tooltips.js", "$exe.tooltips.init('" + p + "')")
+            } else {
+                 $exe.tooltips.init(p);
+            }
         }
     },
 
@@ -530,6 +843,8 @@ var $exeDevices = {
         // Gamification
         gamification: {
             initGame($game, nameGame, gameClass, ideviceClass) {
+                const $activities = $(`.${ideviceClass}`);
+
                 if ($(".QuizTestIdevice .iDevice").length > 0) {
                     $game.hasSCORMbutton = true;
                 }
@@ -539,7 +854,7 @@ var $exeDevices = {
                     ? eXe.app.getIdeviceInstalledExportPath(gameClass)
                     : $(".idevice_node." + gameClass).eq(0).attr("data-idevice-path");
 
-                $game.activities = $(`.${ideviceClass}`);
+                $game.activities = $activities;
                 if ($game.activities.length === 0) return;
                 if (!$exeDevices.iDevice.gamification.helpers.supportedBrowser(nameGame)) return;
 
@@ -1104,7 +1419,7 @@ var $exeDevices = {
                         formattedScore = !isNaN(scoreNumber) ? scoreNumber.toFixed(2) : '0',
                         $header = $main.closest(`.${game.idevice}`);
 
-                    let icon = 'exequextsq.png',
+                    let icon = 'exequextsq.svg',
                         text = game.msgs.msgUncompletedActivity;
 
                     if (state === 1) {
@@ -1231,56 +1546,124 @@ var $exeDevices = {
             },
 
             math: {
-                loadMathJax: function () {
-                    if (!window.MathJax) window.MathJax = $exeDevices.iDevice.gamification.math.engineConfig;
-                    const script = document.createElement('script');
-                    script.src = $exeDevices.iDevice.gamification.math.engine;
-                    script.async = true;
-                    document.head.appendChild(script);
-                },
-                engine: "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-svg.js",
+                _loading: false,
+                _callbacks: [],
 
-                engineConfig: {
-                    loader: {
-                        load: ['[tex]/ams', '[tex]/amscd', '[tex]/cancel', '[tex]/centernot',
-                            '[tex]/color', '[tex]/colortbl', '[tex]/configmacros', '[tex]/gensymb',
-                            '[tex]/mathtools', '[tex]/mhchem', '[tex]/newcommand', '[tex]/noerrors',
-                            '[tex]/noundefined', '[tex]/physics', '[tex]/textmacros', '[tex]/gensymb',
-                            '[tex]/textcomp', '[tex]/bbox', '[tex]/upgreek', '[tex]/verb'
-                        ]
-                    },
-                    tex: {
-                        inlineMath: [
-                            ["\\(", "\\)"]
-                        ],
-                        displayMath: [
-                            ["\\[", "\\]"]
-                        ],
-                        processEscapes: true,
-                        tags: 'ams',
-                        packages: {
-                            '[+]': ['ams', 'amscd', 'cancel', 'centernot', 'color', 'colortbl',
-                                'configmacros', 'gensymb', 'mathtools', 'mhchem', 'newcommand', 'noerrors',
-                                'noundefined', 'physics', 'textmacros', 'upgreek', 'verb'
-                            ]
-                        },
-                        physics: {
-                            italicdiff: false,
-                            arrowdel: false
-                        },
-                    },
-                    textmacros: {
-                        packages: {
-                            '[+]': ['textcomp', 'bbox']
-                        }
+                engine: $("html").prop("id") == "exe-index" ? "./libs/exe_math/tex-mml-svg.js" : "../libs/exe_math/tex-mml-svg.js",
+
+                engineConfig: window.MathJax,
+
+                loadMathJax: function (callback) {
+                    var self = $exeDevices.iDevice.gamification.math;
+
+                    if (typeof window.MathJax === 'object' && typeof MathJax.typesetPromise === 'function') {
+                        if (callback) callback();
+                        return;
                     }
+
+                    if (callback) {
+                        self._callbacks.push(callback);
+                    }
+
+                    if (self._loading) {
+                        return;
+                    }
+
+                    var existingScript = document.querySelector('script[src*="tex-mml-svg.js"]');
+                    if (existingScript) {
+                        self._loading = true;
+                        var checkMathJax = function () {
+                            if (typeof window.MathJax === 'object' && typeof MathJax.typesetPromise === 'function') {
+                                self._loading = false;
+                                while (self._callbacks.length > 0) {
+                                    var cb = self._callbacks.shift();
+                                    cb();
+                                }
+                            } else {
+                                setTimeout(checkMathJax, 50);
+                            }
+                        };
+                        checkMathJax();
+                        return;
+                    }
+
+                    self._loading = true;
+                    // For exports: use relative paths. For workarea: use versioned path if available
+                    var isExport = $("html").prop("id") == "exe-index" || !document.querySelector('script[src*="/app/common/"]');
+                    var basePath;
+                    if (isExport) {
+                        basePath = $("html").prop("id") == "exe-index" ? "./libs/exe_math" : "../libs/exe_math";
+                    } else {
+                        // Workarea: detect version and basePath from script tags
+                        var version = (window.eXeLearning && window.eXeLearning.version) || '';
+                        var configBasePath = '';
+                        // Try to get basePath from parsed config first (if available)
+                        if (window.eXeLearning && window.eXeLearning.config && typeof window.eXeLearning.config === 'object') {
+                            configBasePath = window.eXeLearning.config.basePath || '';
+                        }
+                        // Detect version and basePath from script tags as fallback
+                        var scriptTag = document.querySelector('script[src*="/app/common/"]');
+                        if (scriptTag) {
+                            var src = scriptTag.src;
+                            if (!version) {
+                                var versionMatch = src.match(/\/(v[\d.]+[^/]*)\//);
+                                if (versionMatch) version = versionMatch[1];
+                            }
+                            // Detect basePath from script src if not already set
+                            if (!configBasePath) {
+                                try {
+                                    var url = new URL(src);
+                                    var pathname = url.pathname;
+                                    var appIndex = pathname.indexOf('/app/common/');
+                                    if (appIndex > 0) {
+                                        var beforeApp = pathname.substring(0, appIndex);
+                                        if (version && beforeApp.endsWith('/' + version)) {
+                                            configBasePath = beforeApp.substring(0, beforeApp.length - version.length - 1);
+                                        } else {
+                                            configBasePath = beforeApp;
+                                        }
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                        basePath = version ? configBasePath + '/' + version + '/app/common/exe_math' : configBasePath + '/app/common/exe_math';
+                    }
+                    if (!window.MathJax) {
+                        window.MathJax = self.engineConfig;
+                    }
+                    if (!window.MathJax.loader) window.MathJax.loader = {};
+                    if (!window.MathJax.loader.paths) window.MathJax.loader.paths = {};
+                    // Always set basePath for MathJax path resolution
+                    // This fixes path issues in export formats with subdirectories (like EPUB)
+                    if (basePath) {
+                        window.MathJax.loader.paths.mathjax = basePath;
+                    }
+                    var script = document.createElement('script');
+                    script.src = self.engine;
+                    script.async = true;
+                    script.onload = function () {
+                        var checkReady = function () {
+                            if (typeof window.MathJax === 'object' && typeof MathJax.typesetPromise === 'function') {
+                                self._loading = false;
+                                while (self._callbacks.length > 0) {
+                                    var cb = self._callbacks.shift();
+                                    cb();
+                                }
+                            } else {
+                                setTimeout(checkReady, 50);
+                            }
+                        };
+                        checkReady();
+                    };
+                    document.head.appendChild(script);
                 },
 
                 hasLatex: function (text) {
-                    return /\\\(|\\\[|\\begin\{/.test(text);
+                    return /\\\(|\\\[|\\begin\{|\$\$/.test(text);
                 },
 
                 updateLatex: function (target, opts) {
+                    var self = $exeDevices.iDevice.gamification.math;
                     var options = opts || {};
 
                     function nodesFrom(t) {
@@ -1296,10 +1679,19 @@ var $exeDevices = {
 
                     function runV3(nodes) {
                         if (!nodes.length) return;
+                        // Filter out nodes in hidden SPA pages (prevents replaceChild errors)
+                        var visibleNodes = nodes.filter(function(n) {
+                            var spaPage = n.closest('.spa-page');
+                            // If inside a SPA page, only process if active
+                            if (spaPage) return spaPage.classList.contains('active');
+                            // If not in a SPA page, always process
+                            return true;
+                        });
+                        if (!visibleNodes.length) return;
                         var start = (MathJax.startup && MathJax.startup.promise) ? MathJax.startup.promise : Promise.resolve();
                         return start.then(function () {
-                            if (typeof MathJax.typesetClear === 'function') MathJax.typesetClear(nodes);
-                            return (MathJax.typesetPromise ? MathJax.typesetPromise(nodes) : MathJax.typeset(nodes));
+                            if (typeof MathJax.typesetClear === 'function') MathJax.typesetClear(visibleNodes);
+                            return (MathJax.typesetPromise ? MathJax.typesetPromise(visibleNodes) : MathJax.typeset(visibleNodes));
                         }).catch(function (e) { console.error('MathJax v3 typeset error:', e); });
                     }
 
@@ -1312,10 +1704,17 @@ var $exeDevices = {
 
                     function typesetNow() {
                         var nodes = nodesFrom(target);
-                        if (!nodes.length || typeof MathJax === 'undefined') return;
+                        if (!nodes.length) return;
 
-                        if (MathJax.typesetPromise || MathJax.startup) return runV3(nodes); // v3
-                        if (MathJax.Hub && typeof MathJax.Hub.Queue === 'function') return runV2(nodes); // v2
+                        if (typeof MathJax === 'undefined') {
+                            self.loadMathJax(function () {
+                                typesetNow();
+                            });
+                            return;
+                        }
+
+                        if (MathJax.typesetPromise || MathJax.startup) return runV3(nodes);
+                        if (MathJax.Hub && typeof MathJax.Hub.Queue === 'function') return runV2(nodes);
                     }
 
                     if (options.defer) {
@@ -1394,28 +1793,82 @@ var $exeDevices = {
 
                 },
 
-                stopSound: function (game) {
-                    if (typeof game !== 'object' || game === null) return;
-                    if (game.playerAudio && typeof game.playerAudio.pause === "function") {
-                        game.playerAudio.pause();
-                        game.playerAudio.currentTime = 0;
+                playerAudio: null,
+                currentAudioUrl: null,
+                playSound: async function (selectedFile) {
+                    if (!selectedFile || typeof selectedFile !== 'string') {
+                        console.error('playSound: Invalid audio URL');
+                        return;
                     }
+
+                    // If the same audio is playing, stop it (toggle behavior)
+                    if (
+                        this.playerAudio &&
+                        this.currentAudioUrl === selectedFile &&
+                        !this.playerAudio.paused
+                    ) {
+                        this.stopSound();
+                        return;
+                    }
+
+                    // Stop any currently playing audio before playing new one
+                    this.stopSound();
+
+                    let audioUrl = selectedFile;
+
+                    // Extract URL from Google Drive if applicable
+                    if (
+                        typeof $exeDevices !== 'undefined' &&
+                        $exeDevices.iDevice?.gamification?.media?.extractURLGD
+                    ) {
+                        audioUrl = $exeDevices.iDevice.gamification.media.extractURLGD(audioUrl);
+                    }
+
+                    // Store the original URL for comparison
+                    this.currentAudioUrl = selectedFile;
+
+                    // Create and play the audio
+                    this.playerAudio = new Audio(audioUrl);
+                    this.playerAudio
+                        .play()
+                        .catch((error) => console.error('playSound: Error playing audio:', error));
                 },
 
-                playSound: function (selectedFile, game) {
+                /**
+                 * Stop the currently playing audio
+                 */
+                stopSound: function () {
+                    if (this.playerAudio && typeof this.playerAudio.pause === 'function') {
+                        this.playerAudio.pause();
+                        this.playerAudio = null;
+                    }
+                    this.currentAudioUrl = null;
+                },
+                playSound1: function (selectedFile, game) {
                     if (typeof game !== 'object' || game === null) return;
+                    if (!selectedFile || typeof selectedFile !== 'string') return;
+
                     selectedFile = $exeDevices.iDevice.gamification.media.extractURLGD(selectedFile);
 
-                    if (game.playerAudio && !game.playerAudio.paused) {
-                        game.playerAudio.pause();
+                    // If the same audio is playing, stop it (toggle behavior)
+                    if (
+                        game.playerAudio &&
+                        game.currentAudioUrl === selectedFile &&
+                        !game.playerAudio.paused
+                    ) {
+                        this.stopSound(game);
+                        return;
                     }
 
-                    if (!game.playerAudio || game.playerAudio.src !== selectedFile) {
-                        game.playerAudio = new Audio(selectedFile);
-                        game.playerAudio.play().catch(error => console.error("Error playing audio:", error));
-                    } else if (game.playerAudio.paused) {
-                        game.playerAudio.play().catch(error => console.error("Error playing audio:", error));
-                    }
+                    // Stop any currently playing audio before playing new one
+                    this.stopSound(game);
+
+                    // Store the URL for comparison
+                    game.currentAudioUrl = selectedFile;
+
+                    // Create and play the audio
+                    game.playerAudio = new Audio(selectedFile);
+                    game.playerAudio.play().catch(error => console.error("playSound: Error playing audio:", error));
                 },
 
                 startVideo: function (id, start, end, game, type, instance, updateTimerDisplayLocal) {
@@ -1551,7 +2004,7 @@ var $exeDevices = {
                                 window.onYouTubeIframeAPIReady = () => resolve(window.YT);
                                 const tag = document.createElement('script');
                                 tag.src = 'https://www.youtube.com/iframe_api';
-                                tag.onerror = () => reject(new Error('No se pudo cargar la API de YouTube'));
+                                tag.onerror = () => reject(new Error(_('Could not load YouTube API')));
                                 document.head.appendChild(tag);
                             });
                         }
@@ -1564,59 +2017,110 @@ var $exeDevices = {
             },
 
             helpers: {
+                /**
+                 * Sanitizes a JSON string by escaping unescaped control characters inside string values.
+                 *
+                 * This function processes a JSON string character by character, tracking whether
+                 * the current position is inside a string value (between quotes). When inside a
+                 * string, it escapes any control characters that are not properly escaped.
+                 *
+                 * Control characters handled:
+                 * - 0x08 (backspace) -> \b
+                 * - 0x09 (tab) -> \t
+                 * - 0x0A (newline) -> \n
+                 * - 0x0C (form feed) -> \f
+                 * - 0x0D (carriage return) -> \r
+                 * - 0x2028, 0x2029 (line/paragraph separators) -> \uXXXX
+                 * - Other control chars (0x00-0x1F, 0x7F, 0x80-0x9F) -> \uXXXX
+                 *
+                 * @param {string} jsonString - The JSON string to sanitize
+                 * @returns {string} The sanitized JSON string with properly escaped control characters
+                 *
+                 * @example
+                 * // Sanitize JSON with literal newline inside a string value
+                 * const input = '{"text":"line1\nline2"}';  // literal newline, not \\n
+                 * const output = sanitizeJSONString(input);
+                 * // output: '{"text":"line1\\nline2"}'  // now properly escaped
+                 * JSON.parse(output);  // works without error
+                 */
                 sanitizeJSONString: function (jsonString) {
-                    if (typeof jsonString !== 'string' || jsonString === '') return jsonString;
+                    if (typeof jsonString !== 'string' || jsonString === '') {
+                        return jsonString;
+                    }
+
+                    const BACKSPACE = 0x08;
+                    const TAB = 0x09;
+                    const NEWLINE = 0x0a;
+                    const FORM_FEED = 0x0c;
+                    const CARRIAGE_RETURN = 0x0d;
+                    const DELETE = 0x7f;
+                    const LINE_SEPARATOR = 0x2028;
+                    const PARAGRAPH_SEPARATOR = 0x2029;
 
                     let inString = false;
                     let result = '';
 
                     for (let i = 0; i < jsonString.length; i++) {
-                        const ch = jsonString[i];
+                        const char = jsonString[i];
 
+                        // Outside of a string value - just copy the character
                         if (!inString) {
-                            if (ch === '"') {
+                            if (char === '"') {
                                 inString = true;
                             }
-                            result += ch;
+                            result += char;
                             continue;
                         }
 
-                        if (ch === '\\') {
-                            if (i + 1 < jsonString.length) {
-                                result += ch + jsonString[i + 1];
+                        // Handle escape sequences - copy the backslash and next character as-is
+                        if (char === '\\') {
+                            const nextChar = jsonString[i + 1];
+                            if (nextChar !== undefined) {
+                                result += char + nextChar;
                                 i++;
                             } else {
-                                result += ch;
+                                result += char;
                             }
                             continue;
                         }
 
-                        if (ch === '"') {
+                        // End of string value
+                        if (char === '"') {
                             inString = false;
-                            result += ch;
+                            result += char;
                             continue;
                         }
 
-                        const code = ch.charCodeAt(0);
+                        // Inside a string value - escape control characters
+                        const charCode = char.charCodeAt(0);
 
-                        if (code === 0x08) {
-                            result += '\\b';
-                        } else if (code === 0x09) {
-                            result += '\\t';
-                        } else if (code === 0x0a) {
-                            result += '\\n';
-                        } else if (code === 0x0c) {
-                            result += '\\f';
-                        } else if (code === 0x0d) {
-                            result += '\\r';
-                        } else if (code === 0x2028 || code === 0x2029) {
-                            const hex = code.toString(16).padStart(4, '0');
-                            result += `\\u${hex}`;
-                        } else if (code < 0x20 || code === 0x7f || (code >= 0x80 && code <= 0x9f)) {
-                            const hex = code.toString(16).padStart(4, '0');
-                            result += `\\u${hex}`;
-                        } else {
-                            result += ch;
+                        switch (charCode) {
+                            case BACKSPACE:
+                                result += '\\b';
+                                break;
+                            case TAB:
+                                result += '\\t';
+                                break;
+                            case NEWLINE:
+                                result += '\\n';
+                                break;
+                            case FORM_FEED:
+                                result += '\\f';
+                                break;
+                            case CARRIAGE_RETURN:
+                                result += '\\r';
+                                break;
+                            case LINE_SEPARATOR:
+                            case PARAGRAPH_SEPARATOR:
+                                result += '\\u' + charCode.toString(16).padStart(4, '0');
+                                break;
+                            default:
+                                // Escape other control characters (C0, DEL, C1 control codes)
+                                if (charCode < 0x20 || charCode === DELETE || (charCode >= 0x80 && charCode <= 0x9f)) {
+                                    result += '\\u' + charCode.toString(16).padStart(4, '0');
+                                } else {
+                                    result += char;
+                                }
                         }
                     }
 
@@ -1627,6 +2131,7 @@ var $exeDevices = {
                     str = str.trim();
                     if (str.startsWith('{') && str.endsWith('}')) {
                         try {
+                            str = $exeDevices.iDevice.gamification.helpers.sanitizeJSONString(str);
                             const o = JSON.parse(str);
                             if (o && typeof o === 'object' && !Array.isArray(o)) {
                                 return o;
@@ -1734,22 +2239,22 @@ var $exeDevices = {
                     return `${formattedMinutes}:${formattedSeconds}`;
                 },
 
-                getQuestions: function (questions, percentage) {
+                getQuestions: function (questions, percentage, random) {
+                    if (!Array.isArray(questions)) return questions;
                     const totalQuestions = questions.length;
 
-                    if (percentage >= 100) return questions;
+                    if (percentage >= 100 && !random) return questions;
 
                     const num = Math.max(1, Math.round((percentage * totalQuestions) / 100));
 
                     if (num >= totalQuestions) return questions;
 
                     const indices = Array.from({ length: totalQuestions }, (_, i) => i);
-                    $exeDevices.iDevice.gamification.helpers.shuffleAds(indices);
+                    if (random) {
+                        $exeDevices.iDevice.gamification.helpers.shuffleAds(indices);
+                    }
 
-                    const selectedIndices = indices.slice(0, num).sort((a, b) => a - b),
-                        selectedQuestions = selectedIndices.map(index => questions[index]);
-
-                    return selectedQuestions;
+                    return indices.slice(0, num).map(index => questions[index]);
                 },
                 removeTags: (str) => {
                     const wrapper = $("<div></div>").html(str);
@@ -1957,4 +2462,14 @@ var $exeDevices = {
         },
 
     }
+}
+
+// Export globals for browser and test environments
+if (typeof window !== 'undefined') {
+    window.$exe = $exe;
+    window.$exeDevices = $exeDevices;
+}
+if (typeof global !== 'undefined') {
+    global.$exe = $exe;
+    global.$exeDevices = $exeDevices;
 }
