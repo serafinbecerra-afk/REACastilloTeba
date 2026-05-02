@@ -73,16 +73,37 @@ var $imagegallery = {
     changeDirectory(file, data) {
         const $node = $('#' + data.ideviceId),
             isInExe = eXe.app.isInExe();
+
+        // Keep asset://, blob://, and data: URLs as-is
+        // - asset:// will be resolved by the asset resolver
+        // - blob:// and data: are already resolved URLs (from preview/export)
+        if (file && (file.startsWith('asset://') || file.startsWith('blob:') || file.startsWith('data:'))) {
+            return file;
+        }
+
         if (isInExe || $node.length == 0) return file;
 
-        const pathMedia = $('html').is('#exe-index')
-            ? 'content/resources/' + data.ideviceId + '/'
-            : '../content/resources/' + data.ideviceId + '/';
+        // Determine base path based on page location
+        const basePath = $('html').is('#exe-index') ? '' : '../';
 
-        const parts = file.split(/[/\\]/),
-            name = parts.pop(),
-            dir = pathMedia.replace(/[/\\]+$/, '');
-        return dir + '/' + name;
+        // If path already starts with content/resources/, handle it
+        if (file && file.startsWith('content/resources/')) {
+            const parts = file.split('/');
+            const filename = parts.pop();
+            const possibleFolder = parts[parts.length - 1];
+
+            // Check for malformed path: filename duplicated as folder
+            // e.g., content/resources/image.png/image.png -> content/resources/image.png
+            if (possibleFolder === filename) {
+                parts.pop(); // Remove the duplicated folder
+                return basePath + parts.join('/') + '/' + filename;
+            }
+
+            // Valid path with folder structure - preserve it
+            return basePath + file;
+        }
+
+        return file;
     },
 
     getStringGallery: function (data) {
@@ -144,6 +165,8 @@ var $imagegallery = {
                 'licenselink',
             ],
             captionPosition: 'outside',
+            // Disable file extension check to support blob:// URLs in editor
+            fileExt: false,
         });
     },
 
