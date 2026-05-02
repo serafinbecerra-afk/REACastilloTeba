@@ -55,6 +55,17 @@
     text-decoration: underline
 }
 
+/* Underlined links */
+.box-content a {
+    text-decoration: underline;
+}
+.box-content a:hover {
+    text-decoration: none;
+}
+.box-content a:focus {
+    text-decoration: underline;
+}
+
 @media print {
     .external-iframe-src {
         display: block !important;
@@ -197,34 +208,17 @@
     max-width: 100%
 }
 
-.exe-figure img {
-    display: block;
-    position: relative;
-    z-index: 0
-}
-
-figure.exe-media {
-    margin: 2em 0
-}
-
 .position-center {
-    display: block;
     margin: 2em auto
 }
 
 .position-right {
-    display: block;
     margin: 2em 0 2em auto
-}
-
-.position-left {
-    display: block;
-    margin: 2em auto 2em 0
 }
 
 .float-left {
     float: left;
-    margin: .5em 2em 1em 0
+    margin: .5em 1.5em 1em 0
 }
 
 .float-right {
@@ -232,58 +226,13 @@ figure.exe-media {
     margin: .5em 0 1em 2em
 }
 
-/* Media elements (video, audio, iframe, embed) with alignment classes */
-video.position-left,
-audio.position-left,
-iframe.position-left,
-embed.position-left {
-    display: block;
-    margin: 2em auto 2em 0
-}
-
-video.position-center,
-audio.position-center,
-iframe.position-center,
-embed.position-center {
-    display: block;
-    margin: 2em auto
-}
-
-video.position-right,
-audio.position-right,
-iframe.position-right,
-embed.position-right {
-    display: block;
-    margin: 2em 0 2em auto
-}
-
-video.float-left,
-audio.float-left,
-iframe.float-left,
-embed.float-left {
-    float: left;
-    margin: .5em 2em 1em 0
-}
-
-video.float-right,
-audio.float-right,
-iframe.float-right,
-embed.float-right {
-    float: right;
-    margin: .5em 0 1em 2em
-}
-
 .figcaption {
-    padding-top: .2em;
-    position: relative;
-    z-index: 1
+    padding-top: .2em
 }
 
 .figcaption.header {
     padding-top: 0;
-    padding-bottom: .2em;
-    position: relative;
-    z-index: 1
+    padding-bottom: .2em
 }
 
 /* TinyMCE templates */
@@ -338,6 +287,8 @@ embed.float-right {
 pre.mermaid {
     margin: 1.5em 0;
     text-align: center;
+    width: 100%;
+    min-width: 200px;
 }
 
 /* Blocks */
@@ -680,7 +631,7 @@ video {
     }
 
     .exe-layout-3-cols .exe-col .exe-figure {
-        margin: 1em auto
+        margin: 2em auto
     }
 }
 
@@ -696,7 +647,7 @@ video {
     }
 
     .exe-layout-2-cols .exe-col .exe-figure {
-        margin: 1em auto
+        margin: 2em auto
     }
 }
 
@@ -753,6 +704,11 @@ video {
 #exe-client-search-reset.visible {
     display: inline;
 }
+.exe-client-search-result{
+    padding:0;
+    background-color: #FFF3A0;
+    color: #1A1A1A;
+}
 
 /* Box toggler */
 .exe-export article.minimized .box-content{
@@ -772,4 +728,67 @@ video {
 /* Teacher mode */
 html:not(.mode-teacher) .js .teacher-only {
     display: none !important;
+}
+
+/* ========================================
+   Architecture v3.1 - Common Theme Overrides
+   ========================================
+   These rules support the new HTML structure and
+   load BEFORE theme-specific styles.
+   ======================================== */
+
+/* Navigation: Hide nested sections by default, show active paths */
+#siteNav .other-section {
+    display: none;
+}
+#siteNav li.active > .other-section,
+#siteNav li.current-page-parent > .other-section {
+    display: block;
+}
+
+/* Site footer extra section */
+#siteFooterExtra {
+    margin-bottom: 2em;
+    color: #555;
+    font-size: 0.95em;
+}
+
+/* Skip navigation link */
+#skipNav {
+    position: fixed;
+    top: -50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #000;
+    color: #fff;
+    text-align: center;
+    font-weight: bold;
+    font-size: 0.95em;
+    text-decoration: underline;
+    padding: 0.5em 1em;
+    z-index: 1000;
+    display: inline-block;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    outline: 3px solid #fff;
+    outline-offset: -3px;
+    transition: top 0.3s ease, opacity 0.3s ease;
+}
+
+#skipNav:focus {
+    top: 5px;
+}
+
+/* Print styles for header elements */
+@media print {
+    body #header,
+    body #emptyHeader,
+    body #nodeDecoration {
+        height: auto !important;
+        min-height: 0;
+        border: none;
+        padding: 0;
+    }
+    body #headerContent {
+        padding-top: 40px;
+    }
 }
